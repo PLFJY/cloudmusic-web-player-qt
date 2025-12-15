@@ -15,98 +15,12 @@
 #include <QCloseEvent>
 #include <QDebug>
 #include <QActionGroup>
-#include <QPainter>
-#include <QFont>
-#include <QTimer>
 #include <QFile>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QDBusInterface>
-#include <QDBusReply>
-#include <QDBusConnection>
 #include <QEventLoop>
 #include <QTimer>
 
-
-#ifdef Q_OS_UNIX
-#include <X11/Xlib.h>
-#include <X11/extensions/XTest.h>
-#include <X11/XF86keysym.h>
-#endif
-
 // ---------------- helpers ----------------
-
-QIcon createEmojiIcon(const QString &emoji) {
-    QPixmap pixmap(64, 64);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    QFont font("Noto Color Emoji", 36);
-    painter.setFont(font);
-    painter.drawText(pixmap.rect(), Qt::AlignCenter, emoji);
-    painter.end();
-    return QIcon(pixmap);
-}
-
-QString findFirstMprisService() {
-    QDBusInterface dbusIface("org.freedesktop.DBus",
-                             "/org/freedesktop/DBus",
-                             "org.freedesktop.DBus",
-                             QDBusConnection::sessionBus());
-    if (!dbusIface.isValid()) {
-        qWarning() << "DBus interface invalid:" << QDBusConnection::sessionBus().lastError().message();
-        return QString();
-    }
-    QDBusReply<QStringList> reply = dbusIface.call("ListNames");
-    if (!reply.isValid()) {
-        qWarning() << "ListNames failed:" << reply.error().message();
-        return QString();
-    }
-    for (const QString &name: reply.value()) {
-        if (name.startsWith("org.mpris.MediaPlayer2.")) {
-            return name;
-        }
-    }
-    return QString();
-}
-
-bool sendMprisCommand(const QString &command) {
-    QString service = findFirstMprisService();
-    if (service.isEmpty()) return false;
-    QDBusInterface playerIface(service,
-                               "/org/mpris/MediaPlayer2",
-                               "org.mpris.MediaPlayer2.Player",
-                               QDBusConnection::sessionBus());
-    if (!playerIface.isValid()) return false;
-    QDBusReply<void> reply = playerIface.call(command);
-    return reply.isValid();
-}
-
-#ifdef Q_OS_UNIX
-bool sendX11MediaKey(KeySym keysym) {
-    Display *display = XOpenDisplay(nullptr);
-    if (!display) return false;
-    KeyCode keycode = XKeysymToKeycode(display, keysym);
-    if (keycode == 0) {
-        XCloseDisplay(display);
-        return false;
-    }
-    XTestFakeKeyEvent(display, keycode, True, CurrentTime);
-    XTestFakeKeyEvent(display, keycode, False, CurrentTime);
-    XFlush(display);
-    XCloseDisplay(display);
-    return true;
-}
-#endif
-
-bool sendSystemMediaCommand(const QString &command) {
-    if (sendMprisCommand(command)) return true;
-#ifdef Q_OS_UNIX
-    if (command == "PlayPause") return sendX11MediaKey(XF86XK_AudioPlay);
-    if (command == "Next") return sendX11MediaKey(XF86XK_AudioNext);
-    if (command == "Previous") return sendX11MediaKey(XF86XK_AudioPrev);
-#endif
-    return false;
-}
 
 // 在 QWebEnginePage 上执行 JS，按优先级尝试多个选择器并支持 Shadow DOM，返回是否点击成功
 static bool clickPlayerButton(QWebEnginePage *page, const QString &selectors, int timeoutMs = 1200) {
@@ -221,6 +135,15 @@ public:
     MainWindow(QWebEngineView *view, QSystemTrayIcon *trayIcon, const QString &stateFilePath, QWidget *parent = nullptr)
         : QWidget(parent), m_view(view), m_trayIcon(trayIcon), m_stateFilePath(stateFilePath) {
         QVBoxLayout *layout = new QVBoxLayout;
+
+        // 关键：去掉边距和间距，让 webview 铺满整个窗口
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+
+        // 确保 view 可以扩展填满布局
+        view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        view->setContentsMargins(0, 0, 0, 0);
+
         layout->addWidget(view);
         setLayout(layout);
         resize(1200, 800);
@@ -330,18 +253,18 @@ static const char *js_restore_state_template = R"JS(
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
-    app.setOrganizationName("NeteaseWebPlayer");
-    app.setApplicationName("NeteaseWebPlayer");
+    app.setOrganizationName("CloudMusicWebPlayer-Qt");
+    app.setApplicationName("CloudMusicWebPlayer-Qt");
 
-    qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --no-sandbox");
+    // qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
+    // qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --no-sandbox");
 
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
 
     QString stateFile = dataDir + "/player_state.json";
 
-    QWebEngineProfile *profile = new QWebEngineProfile("NeteaseWebPlayer", &app);
+    QWebEngineProfile *profile = new QWebEngineProfile("CloudMusicWebPlayer-Qt", &app);
     profile->setPersistentStoragePath(dataDir + "/storage");
     profile->setCachePath(dataDir + "/cache");
     profile->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
@@ -374,7 +297,7 @@ int main(int argc, char *argv[]) {
     QSystemTrayIcon *trayIcon = new QSystemTrayIcon(&app);
 
     // QIcon icon
-    QIcon icon(QDir(QCoreApplication::applicationDirPath()).filePath("favicon.ico"));
+    QIcon icon(QDir(QCoreApplication::applicationDirPath()).filePath("favicon.png"));
     trayIcon->setIcon(icon);
     trayIcon->setToolTip("网易云音乐 Web 播放器");
 
@@ -423,9 +346,7 @@ int main(int argc, char *argv[]) {
                 "#btn_pc_minibar_play, button.play-btn, button.playorPauseIconStyle_p5dzjle, button.play-pause-btn, button[title=\"播放\"], button[title=\"暂停\"], span.cmd-icon.cmd-icon-play";
         bool ok = clickPlayerButton(page, sel);
         if (!ok) {
-            qWarning() << "PlayPause click failed, falling back to system command";
-            if (!sendSystemMediaCommand("PlayPause"))
-                qWarning() << "PlayPause both click and system key failed";
+            qWarning() << "PlayPause click failed";
         }
     });
 
@@ -434,9 +355,7 @@ int main(int argc, char *argv[]) {
                 "button[title=\"上一首\"], span.cmd-icon.cmd-icon-pre, button[aria-label=\"pre\"], button.cmd-icon-pre, button .cmd-icon.cmd-icon-pre";
         bool ok = clickPlayerButton(page, sel);
         if (!ok) {
-            qWarning() << "Previous click failed, falling back to system command";
-            if (!sendSystemMediaCommand("Previous"))
-                qWarning() << "Previous both click and system key failed";
+            qWarning() << "Previous click failed";
         }
     });
 
@@ -445,9 +364,7 @@ int main(int argc, char *argv[]) {
                 "button[title=\"下一首\"], span.cmd-icon.cmd-icon-next, button[aria-label=\"next\"], button.cmd-icon-next, button .cmd-icon.cmd-icon-next";
         bool ok = clickPlayerButton(page, sel);
         if (!ok) {
-            qWarning() << "Next click failed, falling back to system command";
-            if (!sendSystemMediaCommand("Next"))
-                qWarning() << "Next both click and system key failed";
+            qWarning() << "Next click failed";
         }
     });
 
