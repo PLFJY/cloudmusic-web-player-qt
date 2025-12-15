@@ -19,6 +19,10 @@
 #include <QJsonObject>
 #include <QEventLoop>
 #include <QTimer>
+#include <QLocalServer>
+#include <QLocalSocket>
+#include <QDataStream>
+
 
 // ---------------- helpers ----------------
 
@@ -256,9 +260,35 @@ int main(int argc, char *argv[]) {
     app.setOrganizationName("CloudMusicWebPlayer-Qt");
     app.setApplicationName("CloudMusicWebPlayer-Qt");
 
-    // qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
-    // qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --no-sandbox");
+    // 单例相关：使用 QLocalServer/QLocalSocket
+    const QString instanceKey = QString("%1-%2")
+        .arg(QCoreApplication::applicationName())
+        .arg(qgetenv("CloudMusicWebPlayer-Qt")); // 可根据需要改为更唯一的标识
+    const QString serverName = instanceKey + "-single-instance";
 
+    // 先尝试连接到已有实例
+    QLocalSocket probeSocket;
+    probeSocket.connectToServer(serverName, QIODevice::WriteOnly);
+    if (probeSocket.waitForConnected(500)) {
+        // 已有实例：发送激活消息并退出
+        QByteArray msg = "activate";
+        QDataStream out(&probeSocket);
+        out.setVersion(QDataStream::Qt_5_15);
+        out << msg;
+        probeSocket.flush();
+        probeSocket.disconnectFromServer();
+        return 0;
+    }
+
+    // 没有实例：创建 server 并监听
+    // 先移除可能残留的 socket 文件，避免 listen 失败
+    QLocalServer::removeServer(serverName);
+    QLocalServer *localServer = new QLocalServer(&app);
+    if (!localServer->listen(serverName)) {
+        qWarning() << "Failed to listen on local server:" << localServer->errorString();
+        // 继续运行但无法接收激活请求
+    }
+    
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
 
@@ -303,6 +333,32 @@ int main(int argc, char *argv[]) {
 
     MainWindow *window = new MainWindow(view, trayIcon, stateFile);
     window->setWindowIcon(icon);
+
+    // 当 localServer 收到新连接时，读取消息并激活窗口
+    if (localServer && localServer->isListening()) {
+        QObject::connect(localServer, &QLocalServer::newConnection, [&]() {
+            QLocalSocket *client = localServer->nextPendingConnection();
+            if (!client) return;
+            QObject::connect(client, &QLocalSocket::readyRead, [client, window]() {
+                QDataStream in(client);
+                in.setVersion(QDataStream::Qt_5_15);
+                QByteArray msg;
+                in >> msg;
+                // 简单协议：收到 "activate" 就显示主窗口
+                if (msg == "activate") {
+                    if (!window->isVisible() || window->isMinimized()) {
+                        window->showNormal();
+                    }
+                    window->raise();
+                    window->activateWindow();
+                }
+                client->disconnectFromServer();
+                client->deleteLater();
+            });
+            // 如果客户端没有发送数据，确保连接被清理
+            QObject::connect(client, &QLocalSocket::disconnected, client, &QLocalSocket::deleteLater);
+        });
+    }
 
     QMenu *trayMenu = new QMenu();
     QAction *showAction = trayMenu->addAction("打开主窗口");
@@ -439,10 +495,15 @@ int main(int argc, char *argv[]) {
         page->runJavaScript(js);
     });
 
-    QObject::connect(&app, &QApplication::aboutToQuit, [trayIcon, window, stateTimer]() {
+    QObject::connect(&app, &QApplication::aboutToQuit, [trayIcon, window, stateTimer, localServer]() {
         stateTimer->stop();
         window->saveSettings();
         if (trayIcon->isVisible()) trayIcon->hide();
+        if (localServer) {
+            localServer->close();
+            // removeServer 以清理 socket 文件
+            QLocalServer::removeServer(localServer->serverName());
+        }
     });
 
     return app.exec();
