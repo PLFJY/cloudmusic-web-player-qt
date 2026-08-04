@@ -326,8 +326,14 @@ int main(int argc, char *argv[]) {
     // tray icon and window
     QSystemTrayIcon *trayIcon = new QSystemTrayIcon(&app);
 
-    // QIcon icon
-    QIcon icon(QDir(QCoreApplication::applicationDirPath()).filePath("favicon.png"));
+    // Prefer an optional favicon next to the executable so users can customize it,
+    // then fall back to the embedded resource used by installed packages.
+    const QString externalIconPath =
+        QDir(QCoreApplication::applicationDirPath()).filePath("favicon.png");
+    QIcon icon(externalIconPath);
+    if (icon.isNull()) {
+        icon = QIcon(":/icons/favicon.png");
+    }
     trayIcon->setIcon(icon);
     trayIcon->setToolTip("网易云音乐 Web 播放器");
 

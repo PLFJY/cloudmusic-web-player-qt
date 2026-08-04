@@ -11,11 +11,13 @@ qt_standard_project_setup()
 
 qt_add_executable(CloudMusicWebPlayer-Qt
         main.cpp
+        resources.qrc
 )
 
 set_target_properties(CloudMusicWebPlayer-Qt PROPERTIES
         OUTPUT_NAME "cloudmusic-web-player-qt"
         AUTOMOC ON
+        AUTORCC ON
 )
 
 target_link_libraries(CloudMusicWebPlayer-Qt PRIVATE

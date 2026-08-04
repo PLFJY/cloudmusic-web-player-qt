@@ -60,7 +60,7 @@ make
 - `player_state.json`：播放状态持久化文件
 
 ### 修改图标
-将 `resources/favicon.png`（或可执行目录下的 `favicon.png`）替换为你想要的图标，程序会在启动时加载该文件作为窗口与托盘图标。
+将可执行目录下的 `favicon.png` 替换为你想要的图标，程序会优先加载该文件作为窗口与托盘图标；如果文件不存在，则使用内置图标。这样安装到系统目录后也无需额外复制图标文件。
 
 ### 修改用户代理
 在 `main.cpp` 中创建 `QWebEngineProfile` 时设置了 `setHttpUserAgent(...)`，可按需修改为自定义 UA。
