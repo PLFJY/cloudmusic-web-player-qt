@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cloud Music Web Player (Qt)
+Comment=Unofficial NetEase Cloud Music web player
+Exec=cloudmusic-web-player-qt
+Icon=cloudmusic-web-player-qt
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=cloudmusic-web-player-qt
