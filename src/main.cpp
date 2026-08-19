@@ -1,1 +1,0 @@
-/home/plfjy/CloudMusicWebPlayer-Qt/main.cpp

@@ -1,3 +1,9 @@
-cmake-build-debug/
+# CMake
+/build/
+/cmake-build-*/
 
-build/
+# makepkg
+/src/
+/pkg/
+/*.pkg.tar.*
+/*.pkg.tar.*.sig
